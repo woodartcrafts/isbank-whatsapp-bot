@@ -130,18 +130,20 @@ async function checkEmails() {
   const now = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
   console.log(`\n🔍 [${now}] Gmail kontrol ediliyor...`);
 
-  const client = new ImapFlow({
-    host: 'imap.gmail.com',
-    port: 993,
-    secure: true,
-    auth: {
-      user: requireEnv('GMAIL_USER'),
-      pass: requireEnv('GMAIL_APP_PASSWORD')
-    },
-    logger: false
-  });
+  let client;
 
   try {
+    client = new ImapFlow({
+      host: 'imap.gmail.com',
+      port: 993,
+      secure: true,
+      auth: {
+        user: requireEnv('GMAIL_USER'),
+        pass: requireEnv('GMAIL_APP_PASSWORD')
+      },
+      logger: false
+    });
+
     await client.connect();
     await client.mailboxOpen('INBOX');
 
@@ -250,7 +252,9 @@ async function checkEmails() {
 
   } catch (err) {
     console.error('❌ Hata:', err.message);
-    try { await client.logout(); } catch {}
+    if (client) {
+      try { await client.logout(); } catch {}
+    }
   }
 }
 
@@ -260,9 +264,15 @@ async function checkEmails() {
 console.log(`🚀 Bot başladı. Her gün saat 12:00'de Gmail kontrol edilecek.`);
 
 // Europe/Istanbul timezone ile direkt 12:00 cron kullan.
-cron.schedule('0 12 * * *', checkEmails, {
+cron.schedule('0 12 * * *', () => {
+  checkEmails().catch((err) => {
+    console.error('❌ Zamanlanmis gorev hatasi:', err.message);
+  });
+}, {
   timezone: 'Europe/Istanbul'
 });
 
 // Railway restart sonrasinda gunu kacirmamak icin acilista bir kez de kontrol et.
-checkEmails();
+checkEmails().catch((err) => {
+  console.error('❌ Acilis kontrol hatasi:', err.message);
+});
