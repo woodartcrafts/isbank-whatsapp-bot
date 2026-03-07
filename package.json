@@ -1,0 +1,14 @@
+{
+  "name": "isbank-whatsapp-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "engines": { "node": ">=18.0.0" },
+  "scripts": { "start": "node index.js" },
+  "dependencies": {
+    "imapflow": "^1.0.162",
+    "pdf-parse": "^1.1.1",
+    "node-cron": "^3.0.0",
+    "node-fetch": "^2.7.0",
+    "dotenv": "^16.0.0"
+  }
+}
