@@ -146,11 +146,20 @@ async function parseIsbankPdf(buffer) {
     // Sadece pozitif (gelen) işlemler
     if (numericVal <= 0) continue;
 
-    // Açıklamayı temizle: satır sonundan tarih, kanal, tutarları çıkar
-    let desc = line
-      .replace(dateRegex, '')
-      .replace(/([+-][\d.]+,\d{2}\s*TRY)/g, '')
-      .trim();
+    // Aciklamayi kolon bazli al: ikinci tutardan (bakiye) sonraki kisim.
+    const secondAmount = amounts[1] || amounts[0];
+    const amountWithTry = secondAmount[0];
+    const amountStart = secondAmount.index || 0;
+    const descStart = amountStart + amountWithTry.length;
+
+    let desc = line.slice(descStart).trim();
+
+    // Bazi PDF'lerde TRY ile aciklama birlesik gelebiliyor.
+    if (!desc && amounts[0]?.index !== undefined) {
+      const firstAmountStart = amounts[0].index;
+      const firstAmountEnd = firstAmountStart + amounts[0][0].length;
+      desc = line.slice(firstAmountEnd).trim();
+    }
 
     // Teknik kodlar ve sube kalintilarini temizle.
     desc = cleanDescription(desc);
@@ -163,7 +172,7 @@ async function parseIsbankPdf(buffer) {
 
         const nextClean = cleanDescription(next);
         if (isMeaningfulDescription(nextClean)) {
-          desc = nextClean;
+          desc = `${desc} ${nextClean}`.trim();
           break;
         }
       }
