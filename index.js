@@ -161,6 +161,9 @@ async function parseIsbankPdf(buffer) {
       desc = line.slice(firstAmountEnd).trim();
     }
 
+    // Bazi satirlarda bakiye metni aciklamanin basina kayabiliyor, temizle.
+    desc = desc.replace(/^[+-][\d.]+,\d{2}\s*TRY\s*/i, '').trim();
+
     // Teknik kodlar ve sube kalintilarini temizle.
     desc = cleanDescription(desc);
 
