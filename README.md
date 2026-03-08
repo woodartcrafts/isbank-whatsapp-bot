@@ -181,23 +181,6 @@ Bu projede kullanilan grup ID ornegi:
 - Grup ID bulunamiyor
   - `ReceiveIncomingNotifications` ile gelen event JSON'unda `chatId` yakala.
 
-## 15. Tek Seferlik Gecmis Email Gonderimi
-
-Kurulu duzeni bozmadan belirli bir tarihli hesap ozetini bir kez gondermek icin:
-
-1. Railway `Variables`:
-   - `ONE_OFF_REPLAY_ENABLED=true`
-   - `ONE_OFF_REPLAY_DATE=06.03.2026`
-2. Servisi `Restart` et.
-3. Log'da `One-off replay basarili` satirini gor.
-4. Islem tamamlaninca tekrar:
-   - `ONE_OFF_REPLAY_ENABLED=false`
-
-Notlar:
-- One-off modunda son 45 gun taranir.
-- Hedef tarihle eslesen ve filtreye uyan ilk uygun email gonderilir.
-- Normal gunluk 12:00 akisina dokunmaz.
-
 ---
 
 Guncel durum: Proje aktif olarak deploy edilebilir ve gunluk otomasyon akisina hazirdir.
