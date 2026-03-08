@@ -158,7 +158,19 @@ async function checkEmails() {
 
     console.log(`📬 ${uids.length} İş Bankası emaili bulundu.`);
 
-    for (const uid of uids) {
+    if (uids.length === 0) {
+      await client.logout();
+      console.log('✅ Kontrol tamamlandı.\n');
+      return;
+    }
+
+    // Sadece en son emaili isle.
+    const latestUid = uids.reduce((maxUid, currentUid) => {
+      return currentUid > maxUid ? currentUid : maxUid;
+    }, uids[0]);
+    console.log(`🆕 En son email UID: ${latestUid}`);
+
+    for (const uid of [latestUid]) {
       if (processedIds.has(String(uid))) {
         console.log(`⏭️  UID ${uid} zaten işlendi.`);
         continue;
