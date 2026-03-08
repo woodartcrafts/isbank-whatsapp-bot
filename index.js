@@ -47,6 +47,22 @@ function isNoStatementEmailBody(sourceText) {
   return /hesap\s+ozeti\s+uretilmemistir|hesap\s+özeti\s+üretilmemiştir/i.test(sourceText);
 }
 
+function isExpectedSender(envelopeFromAddress, envelopeFromName, senderFilter) {
+  const expected = String(senderFilter || '').trim().toLowerCase();
+  const addr = String(envelopeFromAddress || '').trim().toLowerCase();
+  const name = String(envelopeFromName || '').trim().toLowerCase();
+
+  if (!expected) return true;
+
+  // Tam e-posta adresi verilmis ise birebir dogrula.
+  if (expected.includes('@')) {
+    return addr === expected;
+  }
+
+  // Anahtar kelime verilmis ise adreste veya gonderen adinda gecmesini kabul et.
+  return addr.includes(expected) || name.includes(expected);
+}
+
 function findPdfPart(node) {
   if (!node) return null;
   const filename = String(node.dispositionParameters?.filename || node.parameters?.name || '').toLowerCase();
@@ -219,6 +235,7 @@ async function checkEmails() {
 
       const source = msg.source.toString('utf8');
       const envelopeFromAddress = String(msg.envelope?.from?.[0]?.address || '').toLowerCase();
+      const envelopeFromName = String(msg.envelope?.from?.[0]?.name || '').toLowerCase();
       const expectedSender = senderFilter.toLowerCase();
       const subject = String(msg.envelope?.subject || '');
 
@@ -229,8 +246,8 @@ async function checkEmails() {
         }
       }
 
-      if (envelopeFromAddress && envelopeFromAddress !== expectedSender) {
-        console.log(`⏭️  UID ${uid}: beklenen gonderici degil (${envelopeFromAddress}), atlandi.`);
+      if (!isExpectedSender(envelopeFromAddress, envelopeFromName, senderFilter)) {
+        console.log(`⏭️  UID ${uid}: beklenen gonderici degil (beklenen: ${expectedSender}, gelen: ${envelopeFromAddress}), atlandi.`);
         processedIds.add(String(uid));
         continue;
       }
