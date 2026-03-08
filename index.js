@@ -34,6 +34,10 @@ function cleanDescription(raw) {
     .trim();
 }
 
+function isTrue(value) {
+  return String(value || '').trim().toLowerCase() === 'true';
+}
+
 function isExpectedStatementSubject(subject) {
   if (!subject) return false;
   return /\btarihli\b/i.test(subject) && /hesap\s+ozeti|hesap\s+özeti/i.test(subject);
@@ -161,10 +165,24 @@ async function checkEmails() {
     await client.mailboxOpen('INBOX');
 
     // Son 2 günün emaillerini tara
+    const oneOffReplayEnabled = isTrue(process.env.ONE_OFF_REPLAY_ENABLED);
+    const oneOffReplayDate = String(process.env.ONE_OFF_REPLAY_DATE || '').trim();
     const senderFilter = (process.env.ISBANK_EMAIL_ADDRESS || process.env.ISBANK_EMAIL_FROM || DEFAULT_ISBANK_SENDER).trim();
+    const sinceDate = oneOffReplayEnabled
+      ? new Date(Date.now() - 45 * 24 * 60 * 60 * 1000)
+      : new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+
+    if (oneOffReplayEnabled) {
+      if (!oneOffReplayDate) {
+        console.log('⚠️  ONE_OFF_REPLAY_ENABLED=true ama ONE_OFF_REPLAY_DATE bos. One-off modu atlandi.');
+      } else {
+        console.log(`🧪 One-off replay modu aktif. Hedef tarih: ${oneOffReplayDate}`);
+      }
+    }
+
     const uids = await client.search({
       from: senderFilter,
-      since: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+      since: sinceDate
     });
 
     console.log(`📬 ${uids.length} İş Bankası emaili bulundu.`);
@@ -175,14 +193,19 @@ async function checkEmails() {
       return;
     }
 
-    // Sadece en son emaili isle.
-    const latestUid = uids.reduce((maxUid, currentUid) => {
-      return currentUid > maxUid ? currentUid : maxUid;
-    }, uids[0]);
-    console.log(`🆕 En son email UID: ${latestUid}`);
+    const sortedUidsDesc = [...uids].sort((a, b) => b - a);
+    let candidateUids = sortedUidsDesc;
 
-    for (const uid of [latestUid]) {
-      if (processedIds.has(String(uid))) {
+    if (!oneOffReplayEnabled) {
+      // Normal mod: sadece en son email.
+      candidateUids = [sortedUidsDesc[0]];
+      console.log(`🆕 En son email UID: ${candidateUids[0]}`);
+    }
+
+    let oneOffSent = false;
+
+    for (const uid of candidateUids) {
+      if (!oneOffReplayEnabled && processedIds.has(String(uid))) {
         console.log(`⏭️  UID ${uid} zaten işlendi.`);
         continue;
       }
@@ -198,6 +221,13 @@ async function checkEmails() {
       const envelopeFromAddress = String(msg.envelope?.from?.[0]?.address || '').toLowerCase();
       const expectedSender = senderFilter.toLowerCase();
       const subject = String(msg.envelope?.subject || '');
+
+      if (oneOffReplayEnabled && oneOffReplayDate) {
+        const hasTargetDate = subject.includes(oneOffReplayDate) || source.includes(oneOffReplayDate);
+        if (!hasTargetDate) {
+          continue;
+        }
+      }
 
       if (envelopeFromAddress && envelopeFromAddress !== expectedSender) {
         console.log(`⏭️  UID ${uid}: beklenen gonderici degil (${envelopeFromAddress}), atlandi.`);
@@ -286,6 +316,16 @@ async function checkEmails() {
 
       await sendWhatsApp(msg2);
       processedIds.add(String(uid));
+
+      if (oneOffReplayEnabled) {
+        oneOffSent = true;
+        console.log(`✅ One-off replay basarili. UID ${uid} gonderildi.`);
+        break;
+      }
+    }
+
+    if (oneOffReplayEnabled && oneOffReplayDate && !oneOffSent) {
+      console.log(`ℹ️  One-off replay icin ${oneOffReplayDate} tarihli uygun email bulunamadi.`);
     }
 
     await client.logout();

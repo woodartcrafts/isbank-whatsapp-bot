@@ -48,6 +48,8 @@ Zorunlu degiskenler:
 Opsiyonel:
 - `ISBANK_EMAIL_FROM`: Gonderici filtresi (varsayilan: `isbank`)
 - `ISBANK_EMAIL_ADDRESS`: Tam gonderici adresi (onerilen: `bilgilendirme@ileti.isbank.com.tr`)
+- `ONE_OFF_REPLAY_ENABLED`: Tek seferlik yeniden gonderim modu (`true/false`)
+- `ONE_OFF_REPLAY_DATE`: Tek seferlik hedef tarih (`dd.mm.yyyy`, ornek `06.03.2026`)
 
 Not:
 - Koddaki `requireEnv(...)` zorunlu degisken bos/eksikse log'a net hata yazar.
@@ -178,6 +180,23 @@ Bu projede kullanilan grup ID ornegi:
 
 - Grup ID bulunamiyor
   - `ReceiveIncomingNotifications` ile gelen event JSON'unda `chatId` yakala.
+
+## 15. Tek Seferlik Gecmis Email Gonderimi
+
+Kurulu duzeni bozmadan belirli bir tarihli hesap ozetini bir kez gondermek icin:
+
+1. Railway `Variables`:
+   - `ONE_OFF_REPLAY_ENABLED=true`
+   - `ONE_OFF_REPLAY_DATE=06.03.2026`
+2. Servisi `Restart` et.
+3. Log'da `One-off replay basarili` satirini gor.
+4. Islem tamamlaninca tekrar:
+   - `ONE_OFF_REPLAY_ENABLED=false`
+
+Notlar:
+- One-off modunda son 45 gun taranir.
+- Hedef tarihle eslesen ve filtreye uyan ilk uygun email gonderilir.
+- Normal gunluk 12:00 akisina dokunmaz.
 
 ---
 
