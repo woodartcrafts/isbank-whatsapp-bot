@@ -240,12 +240,6 @@ async function checkEmails() {
         msg2 += `──────────────\n`;
       }
 
-      const total = transactions
-        .reduce((sum, t) => sum + parseFloat(t.amount.replace(/\./g, '').replace(',', '.')), 0)
-        .toLocaleString('tr-TR', { minimumFractionDigits: 2 });
-
-      msg2 += `\n💰 *Toplam: +${total} TRY* (${transactions.length} işlem)`;
-
       await sendWhatsApp(msg2);
       processedIds.add(String(uid));
     }
