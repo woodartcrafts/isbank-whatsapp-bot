@@ -34,6 +34,17 @@ function cleanDescription(raw) {
     .trim();
 }
 
+function isMeaningfulDescription(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+
+  // Suba kodu gibi anlamsiz alanlari aciklama olarak kabul etme.
+  if (/^sube\s*\d+$/i.test(value)) return false;
+  if (/^[*\-\s\d]+$/.test(value)) return false;
+
+  return value.length >= 4;
+}
+
 function isTrue(value) {
   return String(value || '').trim().toLowerCase() === 'true';
 }
@@ -144,10 +155,22 @@ async function parseIsbankPdf(buffer) {
     // Teknik kodlar ve sube kalintilarini temizle.
     desc = cleanDescription(desc);
 
-    // Açıklama çok kısaysa bir sonraki satıra bak
-    if (desc.length < 4 && i + 1 < lines.length) {
-      const next = lines[i + 1];
-      if (!next.match(dateRegex)) desc = next;
+    // Aciklama anlamsizsa sonraki satirlardan anlamli bir metin bul.
+    if (!isMeaningfulDescription(desc)) {
+      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+        const next = lines[j];
+        if (next.match(dateRegex)) break;
+
+        const nextClean = cleanDescription(next);
+        if (isMeaningfulDescription(nextClean)) {
+          desc = nextClean;
+          break;
+        }
+      }
+    }
+
+    if (!isMeaningfulDescription(desc)) {
+      desc = 'Aciklama bulunamadi';
     }
 
     transactions.push({ date, amount: amountStr, description: desc });
