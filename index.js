@@ -26,10 +26,7 @@ function formatAmountForMessage(amountWithSign) {
 
 function cleanDescription(raw) {
   return raw
-    .replace(/\bŞube\s*\d+\b/gi, ' ')
-    .replace(/\*\d{4,}\*/g, ' ')
-    .replace(/\*FAST\b/gi, ' ')
-    .replace(/\bFAST\b/gi, ' ')
+    .replace(/\*/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -40,9 +37,9 @@ function isMeaningfulDescription(text) {
 
   // Suba kodu gibi anlamsiz alanlari aciklama olarak kabul etme.
   if (/^sube\s*\d+$/i.test(value)) return false;
-  if (/^[*\-\s\d]+$/.test(value)) return false;
+  if (/^[*\-\s]+$/.test(value)) return false;
 
-  return value.length >= 4;
+  return value.length >= 2;
 }
 
 function looksLikeContinuationLine(text) {
@@ -50,20 +47,25 @@ function looksLikeContinuationLine(text) {
   if (!value) return false;
   if (/^\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}:\d{2}/.test(value)) return false;
   if (/([+-][\d.]+,\d{2})\s*TRY/i.test(value)) return false;
+  if (/^hesap\s+ozeti$/i.test(value)) return false;
   return true;
 }
 
+function normalizeForMatch(text) {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 function isStatementFooterLine(text) {
-  const value = String(text || '').trim().toLowerCase();
+  const value = normalizeForMatch(String(text || '').trim());
   if (!value) return false;
 
   return (
     value.includes('islem saatleri turkiye saati ile gosterilmektedir') ||
-    value.includes('işlem saatleri türkiye saati ile gösterilmektedir') ||
     value.includes('bu hesap ozeti') ||
-    value.includes('bu hesap özeti') ||
     value.includes('bizi tercih ettiginiz') ||
-    value.includes('bizi tercih ettiğiniz') ||
     value.includes('www.isbank.com.tr')
   );
 }
@@ -190,43 +192,26 @@ async function parseIsbankPdf(buffer) {
     // Teknik kodlar ve sube kalintilarini temizle.
     desc = cleanDescription(desc);
 
-    // Aciklama anlamsizsa sonraki satirlardan anlamli bir metin bul.
-    if (!isMeaningfulDescription(desc) || isStatementFooterLine(desc)) {
-      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
-        const next = lines[j];
-        if (next.match(dateRegex)) break;
+    // Aciklama kolonunun devam satirlarini topla (islem satiri/dipnot gelene kadar).
+    const continuationParts = [];
+    for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+      const next = lines[j];
+      if (next.match(dateRegex)) break;
 
-        const nextClean = cleanDescription(next);
-        if (isStatementFooterLine(nextClean)) break;
-        if (isMeaningfulDescription(nextClean)) {
-          desc = `${desc} ${nextClean}`.trim();
-          break;
-        }
-      }
+      const nextClean = cleanDescription(next);
+      if (isStatementFooterLine(nextClean)) break;
+      if (!looksLikeContinuationLine(nextClean)) continue;
+      if (!isMeaningfulDescription(nextClean)) continue;
+
+      continuationParts.push(nextClean);
     }
 
-    // Aciklama bir alt satira tasmissa en fazla 2 devam satiri ekle.
-    if (isMeaningfulDescription(desc)) {
-      const continuationParts = [];
-      for (let j = i + 1; j < Math.min(i + 9, lines.length); j++) {
-        const next = lines[j];
-        if (next.match(dateRegex)) break;
-
-        const nextClean = cleanDescription(next);
-        if (isStatementFooterLine(nextClean)) break;
-        if (!looksLikeContinuationLine(nextClean)) continue;
-        if (!isMeaningfulDescription(nextClean)) continue;
-        if (nextClean === desc) continue;
-
-        continuationParts.push(nextClean);
-        if (continuationParts.length >= 4) break;
-      }
-
-      if (continuationParts.length > 0) {
-        const allParts = [desc, ...continuationParts].join(' ');
-        desc = allParts.replace(/\s+/g, ' ').trim();
-      }
+    const allParts = [];
+    if (isMeaningfulDescription(desc) && !isStatementFooterLine(desc)) {
+      allParts.push(desc);
     }
+    allParts.push(...continuationParts);
+    desc = allParts.join(' ').replace(/\s+/g, ' ').trim();
 
     if (!isMeaningfulDescription(desc)) {
       desc = 'Aciklama bulunamadi';
