@@ -23,6 +23,16 @@ function formatAmountForMessage(amountWithSign) {
   return `${amountWithSign} TRY`;
 }
 
+function cleanDescription(raw) {
+  return raw
+    .replace(/\bŞube\s*\d+\b/gi, ' ')
+    .replace(/\*\d{4,}\*/g, ' ')
+    .replace(/\*FAST\b/gi, ' ')
+    .replace(/\bFAST\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function findPdfPart(node) {
   if (!node) return null;
   const filename = String(node.dispositionParameters?.filename || node.parameters?.name || '').toLowerCase();
@@ -98,18 +108,11 @@ async function parseIsbankPdf(buffer) {
     // Açıklamayı temizle: satır sonundan tarih, kanal, tutarları çıkar
     let desc = line
       .replace(dateRegex, '')
-      .replace(/Şube\s+\d+/i, '')
       .replace(/([+-][\d.]+,\d{2}\s*TRY)/g, '')
-      .replace(/\s+/g, ' ')
       .trim();
 
-    // Teknik kodları temizle (*FAST, *1234567890*)
-    desc = desc
-      .replace(/\*\d{6,}\*/g, ' ')
-      .replace(/\*FAST\s*$/i, '')
-      .replace(/\*\d{4,}\s*$/i, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    // Teknik kodlar ve sube kalintilarini temizle.
+    desc = cleanDescription(desc);
 
     // Açıklama çok kısaysa bir sonraki satıra bak
     if (desc.length < 4 && i + 1 < lines.length) {
@@ -223,7 +226,7 @@ async function checkEmails() {
       }
 
       console.log(`💰 ${transactions.length} gelen işlem:`);
-      transactions.forEach(t => console.log(`   ${t.date} | +${t.amount} TRY | ${t.description}`));
+      transactions.forEach(t => console.log(`   ${t.date} | ${formatAmountForMessage(t.amount)} | ${t.description}`));
 
       // Mesaj oluştur
       let msg2 = `🏦 *İş Bankası Hesap Hareketi*\n`;
