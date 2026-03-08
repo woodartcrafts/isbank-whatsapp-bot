@@ -9,6 +9,7 @@ const fetch = require('node-fetch');
 // Railway'de dosya sistemi geçici olduğundan memory'de tutuyoruz
 // ─────────────────────────────────────────
 const processedIds = new Set();
+const DEFAULT_ISBANK_SENDER = 'bilgilendirme@ileti.isbank.com.tr';
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -31,6 +32,15 @@ function cleanDescription(raw) {
     .replace(/\bFAST\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function isExpectedStatementSubject(subject) {
+  if (!subject) return false;
+  return /\btarihli\b/i.test(subject) && /hesap\s+ozeti|hesap\s+özeti/i.test(subject);
+}
+
+function isNoStatementEmailBody(sourceText) {
+  return /hesap\s+ozeti\s+uretilmemistir|hesap\s+özeti\s+üretilmemiştir/i.test(sourceText);
 }
 
 function findPdfPart(node) {
@@ -151,8 +161,9 @@ async function checkEmails() {
     await client.mailboxOpen('INBOX');
 
     // Son 2 günün emaillerini tara
+    const senderFilter = (process.env.ISBANK_EMAIL_ADDRESS || process.env.ISBANK_EMAIL_FROM || DEFAULT_ISBANK_SENDER).trim();
     const uids = await client.search({
-      from: process.env.ISBANK_EMAIL_FROM || 'isbank',
+      from: senderFilter,
       since: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
     });
 
@@ -184,6 +195,27 @@ async function checkEmails() {
       });
 
       const source = msg.source.toString('utf8');
+      const envelopeFromAddress = String(msg.envelope?.from?.[0]?.address || '').toLowerCase();
+      const expectedSender = senderFilter.toLowerCase();
+      const subject = String(msg.envelope?.subject || '');
+
+      if (envelopeFromAddress && envelopeFromAddress !== expectedSender) {
+        console.log(`⏭️  UID ${uid}: beklenen gonderici degil (${envelopeFromAddress}), atlandi.`);
+        processedIds.add(String(uid));
+        continue;
+      }
+
+      if (!isExpectedStatementSubject(subject)) {
+        console.log(`⏭️  UID ${uid}: hesap ozeti konu formati degil, atlandi.`);
+        processedIds.add(String(uid));
+        continue;
+      }
+
+      if (isNoStatementEmailBody(source)) {
+        console.log(`ℹ️  UID ${uid}: gun icinde hareket yok, hesap ozeti uretilmemis.`);
+        processedIds.add(String(uid));
+        continue;
+      }
 
       // Email tarihini al
       let emailDate = new Date().toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });

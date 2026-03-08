@@ -47,6 +47,7 @@ Zorunlu degiskenler:
 
 Opsiyonel:
 - `ISBANK_EMAIL_FROM`: Gonderici filtresi (varsayilan: `isbank`)
+- `ISBANK_EMAIL_ADDRESS`: Tam gonderici adresi (onerilen: `bilgilendirme@ileti.isbank.com.tr`)
 
 Not:
 - Koddaki `requireEnv(...)` zorunlu degisken bos/eksikse log'a net hata yazar.
@@ -58,17 +59,19 @@ Not:
 3. Ek olarak servis acilisinda bir kez `checkEmails()` calisir.
 4. Gmail IMAP baglantisi acilir.
 5. Son 2 gun + `from` filtresi ile e-postalar aranir.
-6. Bulunan UID'lerden sadece en yeni UID secilir.
-7. Mail govdesinden PDF eki once MIME body structure ile, olmazsa base64 fallback ile alinmaya calisilir.
-8. PDF satir satir parse edilir.
-9. Tarih + pozitif tutar satirlari secilir.
-10. Aciklamalardan teknik artefaktlar temizlenir (`Sube`, `*0015*`, `FAST` vb.).
-11. WhatsApp mesaji olusturulur:
+6. Gonderici adresi ve konu satiri hesap ozeti formatina gore dogrulanir.
+7. "hesap ozeti uretilmemistir" icerigi varsa e-posta bilgi maili olarak atlanir.
+8. Bulunan UID'lerden sadece en yeni UID secilir.
+9. Mail govdesinden PDF eki once MIME body structure ile, olmazsa base64 fallback ile alinmaya calisilir.
+10. PDF satir satir parse edilir.
+11. Tarih + pozitif tutar satirlari secilir.
+12. Aciklamalardan teknik artefaktlar temizlenir (`Sube`, `*0015*`, `FAST` vb.).
+13. WhatsApp mesaji olusturulur:
    - `📥 tutar`
    - `📆 tarih`
    - `📝 aciklama`
-12. Green API `sendMessage` ile gruba gonderilir.
-13. Islenen UID memory'de tutulur (aynisi ayni runtime'da tekrar gonderilmez).
+14. Green API `sendMessage` ile gruba gonderilir.
+15. Islenen UID memory'de tutulur (aynisi ayni runtime'da tekrar gonderilmez).
 
 ## 6. Mesaj Formati
 
