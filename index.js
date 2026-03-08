@@ -53,6 +53,21 @@ function looksLikeContinuationLine(text) {
   return true;
 }
 
+function isStatementFooterLine(text) {
+  const value = String(text || '').trim().toLowerCase();
+  if (!value) return false;
+
+  return (
+    value.includes('islem saatleri turkiye saati ile gosterilmektedir') ||
+    value.includes('işlem saatleri türkiye saati ile gösterilmektedir') ||
+    value.includes('bu hesap ozeti') ||
+    value.includes('bu hesap özeti') ||
+    value.includes('bizi tercih ettiginiz') ||
+    value.includes('bizi tercih ettiğiniz') ||
+    value.includes('www.isbank.com.tr')
+  );
+}
+
 function isTrue(value) {
   return String(value || '').trim().toLowerCase() === 'true';
 }
@@ -176,12 +191,13 @@ async function parseIsbankPdf(buffer) {
     desc = cleanDescription(desc);
 
     // Aciklama anlamsizsa sonraki satirlardan anlamli bir metin bul.
-    if (!isMeaningfulDescription(desc)) {
+    if (!isMeaningfulDescription(desc) || isStatementFooterLine(desc)) {
       for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
         const next = lines[j];
         if (next.match(dateRegex)) break;
 
         const nextClean = cleanDescription(next);
+        if (isStatementFooterLine(nextClean)) break;
         if (isMeaningfulDescription(nextClean)) {
           desc = `${desc} ${nextClean}`.trim();
           break;
@@ -192,16 +208,18 @@ async function parseIsbankPdf(buffer) {
     // Aciklama bir alt satira tasmissa en fazla 2 devam satiri ekle.
     if (isMeaningfulDescription(desc)) {
       const continuationParts = [];
-      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+      for (let j = i + 1; j < Math.min(i + 9, lines.length); j++) {
         const next = lines[j];
         if (next.match(dateRegex)) break;
 
         const nextClean = cleanDescription(next);
+        if (isStatementFooterLine(nextClean)) break;
         if (!looksLikeContinuationLine(nextClean)) continue;
         if (!isMeaningfulDescription(nextClean)) continue;
+        if (nextClean === desc) continue;
 
         continuationParts.push(nextClean);
-        if (continuationParts.length >= 2) break;
+        if (continuationParts.length >= 4) break;
       }
 
       if (continuationParts.length > 0) {
