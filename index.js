@@ -45,6 +45,14 @@ function isMeaningfulDescription(text) {
   return value.length >= 4;
 }
 
+function looksLikeContinuationLine(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  if (/^\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}:\d{2}/.test(value)) return false;
+  if (/([+-][\d.]+,\d{2})\s*TRY/i.test(value)) return false;
+  return true;
+}
+
 function isTrue(value) {
   return String(value || '').trim().toLowerCase() === 'true';
 }
@@ -178,6 +186,27 @@ async function parseIsbankPdf(buffer) {
           desc = `${desc} ${nextClean}`.trim();
           break;
         }
+      }
+    }
+
+    // Aciklama bir alt satira tasmissa en fazla 2 devam satiri ekle.
+    if (isMeaningfulDescription(desc)) {
+      const continuationParts = [];
+      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+        const next = lines[j];
+        if (next.match(dateRegex)) break;
+
+        const nextClean = cleanDescription(next);
+        if (!looksLikeContinuationLine(nextClean)) continue;
+        if (!isMeaningfulDescription(nextClean)) continue;
+
+        continuationParts.push(nextClean);
+        if (continuationParts.length >= 2) break;
+      }
+
+      if (continuationParts.length > 0) {
+        const allParts = [desc, ...continuationParts].join(' ');
+        desc = allParts.replace(/\s+/g, ' ').trim();
       }
     }
 
