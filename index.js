@@ -3,13 +3,72 @@ const { ImapFlow } = require('imapflow');
 const pdf = require('pdf-parse');
 const cron = require('node-cron');
 const fetch = require('node-fetch');
+const fs = require('fs');
+const path = require('path');
 
 // ─────────────────────────────────────────
-// İşlenmiş email ID'leri (aynı emaili iki kez gönderme)
-// Railway'de dosya sistemi geçici olduğundan memory'de tutuyoruz
+// Islenmis email UID'leri (ayni emaili iki kez gondermeme)
+// Runtime acilisinda dosyadan yuklenir, her yeni UID'de tekrar kaydedilir.
 // ─────────────────────────────────────────
 const processedIds = new Set();
+const processedIdQueue = [];
 const DEFAULT_ISBANK_SENDER = 'bilgilendirme@ileti.isbank.com.tr';
+const PROCESSED_IDS_FILE = path.resolve(process.cwd(), process.env.PROCESSED_IDS_FILE || 'processed-ids.json');
+const maxProcessedIds = Number.parseInt(process.env.PROCESSED_IDS_MAX || '1000', 10);
+const PROCESSED_IDS_MAX = Number.isFinite(maxProcessedIds) && maxProcessedIds > 0 ? maxProcessedIds : 1000;
+
+function persistProcessedIds() {
+  try {
+    const payload = {
+      ids: processedIdQueue,
+      updatedAt: new Date().toISOString()
+    };
+    fs.writeFileSync(PROCESSED_IDS_FILE, JSON.stringify(payload, null, 2), 'utf8');
+  } catch (err) {
+    console.error(`⚠️  Islenen UID dosyasi yazilamadi (${PROCESSED_IDS_FILE}):`, err.message);
+  }
+}
+
+function loadProcessedIds() {
+  try {
+    if (!fs.existsSync(PROCESSED_IDS_FILE)) return;
+
+    const raw = fs.readFileSync(PROCESSED_IDS_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    const ids = Array.isArray(parsed?.ids) ? parsed.ids : [];
+
+    for (const id of ids) {
+      const normalized = String(id || '').trim();
+      if (!normalized || processedIds.has(normalized)) continue;
+      processedIds.add(normalized);
+      processedIdQueue.push(normalized);
+    }
+
+    while (processedIdQueue.length > PROCESSED_IDS_MAX) {
+      const removed = processedIdQueue.shift();
+      if (removed) processedIds.delete(removed);
+    }
+
+    console.log(`🧠 ${processedIdQueue.length} adet islenmis UID dosyadan yuklendi.`);
+  } catch (err) {
+    console.error(`⚠️  Islenen UID dosyasi okunamadi (${PROCESSED_IDS_FILE}):`, err.message);
+  }
+}
+
+function markProcessed(uid) {
+  const normalized = String(uid || '').trim();
+  if (!normalized || processedIds.has(normalized)) return;
+
+  processedIds.add(normalized);
+  processedIdQueue.push(normalized);
+
+  while (processedIdQueue.length > PROCESSED_IDS_MAX) {
+    const removed = processedIdQueue.shift();
+    if (removed) processedIds.delete(removed);
+  }
+
+  persistProcessedIds();
+}
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -81,6 +140,60 @@ function isExpectedStatementSubject(subject) {
 
 function isNoStatementEmailBody(sourceText) {
   return /hesap\s+ozeti\s+uretilmemistir|hesap\s+özeti\s+üretilmemiştir/i.test(sourceText);
+}
+
+function extractDateFromSubject(subject) {
+  const match = String(subject || '').match(/(\d{2}\.\d{2}\.\d{4})/);
+  return match ? match[1] : null;
+}
+
+function dateTextToSortableKey(dateText) {
+  const m = String(dateText || '').trim().match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!m) return null;
+
+  const day = Number.parseInt(m[1], 10);
+  const month = Number.parseInt(m[2], 10);
+  const year = Number.parseInt(m[3], 10);
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return Number(`${m[3]}${m[2]}${m[1]}`);
+}
+
+function parseDateText(dateText) {
+  const m = String(dateText || '').trim().match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!m) return null;
+
+  const day = Number.parseInt(m[1], 10);
+  const month = Number.parseInt(m[2], 10);
+  const year = Number.parseInt(m[3], 10);
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date;
+}
+
+function diffInDays(a, b) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const aUtc = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const bUtc = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.floor((aUtc - bUtc) / msPerDay);
+}
+
+function formatDateWithWeekday(dateText) {
+  const value = String(dateText || '').trim();
+  const m = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!m) return value;
+
+  const day = Number.parseInt(m[1], 10);
+  const month = Number.parseInt(m[2], 10);
+  const year = Number.parseInt(m[3], 10);
+  const date = new Date(year, month - 1, day);
+
+  if (Number.isNaN(date.getTime())) return value;
+  const weekday = date.toLocaleDateString('tr-TR', { weekday: 'long', timeZone: 'Europe/Istanbul' });
+  const weekdayCapitalized = weekday.charAt(0).toUpperCase() + weekday.slice(1);
+  return `${value} ${weekdayCapitalized}`;
 }
 
 function isExpectedSender(envelopeFromAddress, envelopeFromName, senderFilter) {
@@ -230,6 +343,18 @@ async function checkEmails() {
   const now = new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
   console.log(`\n🔍 [${now}] Gmail kontrol ediliyor...`);
 
+  // Runtime tanisi: Railway'de hangi instance ve hangi env degerleriyle calistigini net gosterir.
+  const oneOffEnabledRaw = process.env.ONE_OFF_REPLAY_ENABLED;
+  const oneOffDateRaw = process.env.ONE_OFF_REPLAY_DATE;
+  const oneOffForceRaw = process.env.ONE_OFF_REPLAY_FORCE;
+  const oneOffMaxAgeRaw = process.env.ONE_OFF_REPLAY_MAX_AGE_DAYS;
+  const railService = process.env.RAILWAY_SERVICE_NAME || 'local';
+  const railEnv = process.env.RAILWAY_ENVIRONMENT_NAME || 'local';
+  const railDeploy = process.env.RAILWAY_DEPLOYMENT_ID || 'unknown';
+
+  console.log(`🧭 Runtime: service=${railService}, env=${railEnv}, deploy=${railDeploy}`);
+  console.log(`🧪 ONE_OFF raw: enabled=${oneOffEnabledRaw ?? '<undefined>'}, date=${oneOffDateRaw ?? '<undefined>'}, force=${oneOffForceRaw ?? '<undefined>'}, maxAge=${oneOffMaxAgeRaw ?? '<undefined>'}`);
+
   let client;
 
   try {
@@ -248,8 +373,31 @@ async function checkEmails() {
     await client.mailboxOpen('INBOX');
 
     // Son 2 günün emaillerini tara
-    const oneOffReplayEnabled = isTrue(process.env.ONE_OFF_REPLAY_ENABLED);
+    let oneOffReplayEnabled = isTrue(process.env.ONE_OFF_REPLAY_ENABLED);
+    const oneOffReplayForce = isTrue(process.env.ONE_OFF_REPLAY_FORCE);
     const oneOffReplayDate = String(process.env.ONE_OFF_REPLAY_DATE || '').trim();
+    const oneOffReplayMaxAgeRaw = Number.parseInt(process.env.ONE_OFF_REPLAY_MAX_AGE_DAYS || '1', 10);
+    const oneOffReplayMaxAgeDays = Number.isFinite(oneOffReplayMaxAgeRaw) && oneOffReplayMaxAgeRaw >= 0
+      ? oneOffReplayMaxAgeRaw
+      : 1;
+
+    if (oneOffReplayEnabled && oneOffReplayDate && !oneOffReplayForce) {
+      const todayText = new Date().toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
+      const todayDate = parseDateText(todayText);
+      const replayDate = parseDateText(oneOffReplayDate);
+
+      if (!replayDate) {
+        console.log('⚠️  ONE_OFF_REPLAY_DATE gecersiz formatta. One-off modu devre disi birakildi.');
+        oneOffReplayEnabled = false;
+      } else if (todayDate) {
+        const ageDays = diffInDays(todayDate, replayDate);
+        if (ageDays > oneOffReplayMaxAgeDays) {
+          console.log(`⚠️  ONE_OFF_REPLAY_DATE (${oneOffReplayDate}) ${ageDays} gun onceye ait. ONE_OFF_REPLAY_FORCE=true olmadigi icin one-off modu devre disi birakildi.`);
+          oneOffReplayEnabled = false;
+        }
+      }
+    }
+
     const senderFilter = (process.env.ISBANK_EMAIL_ADDRESS || process.env.ISBANK_EMAIL_FROM || DEFAULT_ISBANK_SENDER).trim();
     const sinceDate = oneOffReplayEnabled
       ? new Date(Date.now() - 45 * 24 * 60 * 60 * 1000)
@@ -260,6 +408,9 @@ async function checkEmails() {
         console.log('⚠️  ONE_OFF_REPLAY_ENABLED=true ama ONE_OFF_REPLAY_DATE bos. One-off modu atlandi.');
       } else {
         console.log(`🧪 One-off replay modu aktif. Hedef tarih: ${oneOffReplayDate}`);
+        if (oneOffReplayForce) {
+          console.log('⚠️  ONE_OFF_REPLAY_FORCE=true oldugu icin daha once islenmis UID tekrar gonderilebilir.');
+        }
       }
     }
 
@@ -280,15 +431,37 @@ async function checkEmails() {
     let candidateUids = sortedUidsDesc;
 
     if (!oneOffReplayEnabled) {
-      // Normal mod: sadece en son email.
-      candidateUids = [sortedUidsDesc[0]];
-      console.log(`🆕 En son email UID: ${candidateUids[0]}`);
+      // Normal mod: konu satirindaki ozet tarihi en yeni olan UID'i sec.
+      let selectedUid = sortedUidsDesc[0];
+      let selectedDateKey = null;
+      let selectedDateText = null;
+
+      for (const uid of sortedUidsDesc) {
+        const info = await client.fetchOne(uid, { envelope: true });
+        const subjectDateText = extractDateFromSubject(info?.envelope?.subject || '');
+        const dateKey = dateTextToSortableKey(subjectDateText);
+
+        if (dateKey === null) continue;
+
+        if (selectedDateKey === null || dateKey > selectedDateKey || (dateKey === selectedDateKey && uid > selectedUid)) {
+          selectedUid = uid;
+          selectedDateKey = dateKey;
+          selectedDateText = subjectDateText;
+        }
+      }
+
+      candidateUids = [selectedUid];
+      if (selectedDateText) {
+        console.log(`🆕 Secilen email UID: ${selectedUid} (konu tarihi: ${selectedDateText})`);
+      } else {
+        console.log(`🆕 Secilen email UID: ${selectedUid} (konu tarihi okunamadi, UID fallback)`);
+      }
     }
 
     let oneOffSent = false;
 
     for (const uid of candidateUids) {
-      if (!oneOffReplayEnabled && processedIds.has(String(uid))) {
+      if (!oneOffReplayForce && processedIds.has(String(uid))) {
         console.log(`⏭️  UID ${uid} zaten işlendi.`);
         continue;
       }
@@ -315,19 +488,29 @@ async function checkEmails() {
 
       if (!isExpectedSender(envelopeFromAddress, envelopeFromName, senderFilter)) {
         console.log(`⏭️  UID ${uid}: beklenen gonderici degil (beklenen: ${expectedSender}, gelen: ${envelopeFromAddress}), atlandi.`);
-        processedIds.add(String(uid));
+        markProcessed(uid);
         continue;
       }
 
       if (!isExpectedStatementSubject(subject)) {
         console.log(`⏭️  UID ${uid}: hesap ozeti konu formati degil, atlandi.`);
-        processedIds.add(String(uid));
+        markProcessed(uid);
         continue;
       }
 
       if (isNoStatementEmailBody(source)) {
         console.log(`ℹ️  UID ${uid}: gun icinde hareket yok, hesap ozeti uretilmemis.`);
-        processedIds.add(String(uid));
+        const statementDate = extractDateFromSubject(subject);
+        const dateLabel = statementDate ? formatDateWithWeekday(statementDate) : 'ilgili gun';
+        const noTxMessage = [
+          '🏦 *Is Bankasi Hesap Hareketi*',
+          '',
+          `📅 ${dateLabel}`,
+          'ℹ️ Bu tarihte hesabiniza gelen herhangi bir para yoktur.'
+        ].join('\n');
+
+        await sendWhatsApp(noTxMessage);
+        markProcessed(uid);
         continue;
       }
 
@@ -370,7 +553,7 @@ async function checkEmails() {
 
       if (!pdfBuffer) {
         console.log(`⚠️  UID ${uid}: PDF bulunamadı, atlanıyor.`);
-        processedIds.add(String(uid));
+        markProcessed(uid);
         continue;
       }
 
@@ -379,7 +562,7 @@ async function checkEmails() {
 
       if (transactions.length === 0) {
         console.log(`ℹ️  UID ${uid}: Gelen işlem yok.`);
-        processedIds.add(String(uid));
+        markProcessed(uid);
         continue;
       }
 
@@ -399,7 +582,7 @@ async function checkEmails() {
       }
 
       await sendWhatsApp(msg2);
-      processedIds.add(String(uid));
+      markProcessed(uid);
 
       if (oneOffReplayEnabled) {
         oneOffSent = true;
@@ -426,6 +609,8 @@ async function checkEmails() {
 // ─────────────────────────────────────────
 // Başlat
 // ─────────────────────────────────────────
+loadProcessedIds();
+
 console.log(`🚀 Bot başladı. Her gün saat 12:00'de Gmail kontrol edilecek.`);
 
 // Europe/Istanbul timezone ile direkt 12:00 cron kullan.
@@ -435,9 +620,4 @@ cron.schedule('0 12 * * *', () => {
   });
 }, {
   timezone: 'Europe/Istanbul'
-});
-
-// Railway restart sonrasinda gunu kacirmamak icin acilista bir kez de kontrol et.
-checkEmails().catch((err) => {
-  console.error('❌ Acilis kontrol hatasi:', err.message);
 });
