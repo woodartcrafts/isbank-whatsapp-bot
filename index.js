@@ -613,6 +613,13 @@ loadProcessedIds();
 
 console.log(`🚀 Bot başladı. Her gün saat 12:00'de Gmail kontrol edilecek.`);
 
+if (isTrue(process.env.STARTUP_CHECK_ENABLED)) {
+  console.log('🧪 STARTUP_CHECK_ENABLED=true, acilista bir kez Gmail kontrolu yapiliyor...');
+  checkEmails().catch((err) => {
+    console.error('❌ Acilis kontrol hatasi:', err.message);
+  });
+}
+
 // Europe/Istanbul timezone ile direkt 12:00 cron kullan.
 cron.schedule('0 12 * * *', () => {
   checkEmails().catch((err) => {
