@@ -561,7 +561,17 @@ async function checkEmails() {
       const transactions = await parseIsbankPdf(pdfBuffer);
 
       if (transactions.length === 0) {
-        console.log(`ℹ️  UID ${uid}: Gelen işlem yok.`);
+        console.log(`ℹ️  UID ${uid}: PDF'de pozitif gelen islem yok.`);
+        const statementDate = extractDateFromSubject(subject);
+        const dateLabel = statementDate ? formatDateWithWeekday(statementDate) : formatDateWithWeekday(emailDate);
+        const noTxMessage = [
+          '🏦 *Is Bankasi Hesap Hareketi*',
+          '',
+          `📅 ${dateLabel}`,
+          'ℹ️ Bu tarihte hesabiniza gelen herhangi bir para yoktur.'
+        ].join('\n');
+
+        await sendWhatsApp(noTxMessage);
         markProcessed(uid);
         continue;
       }

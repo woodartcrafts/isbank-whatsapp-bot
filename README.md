@@ -13,6 +13,7 @@ Guncel davranis:
 - Normal modda konu tarihine gore en yeni hesap ozetini secer (UID tek basina belirleyici degildir).
 - Islem satirlarinda tarih + pozitif tutar + aciklama bilgilerini gonderir.
 - "hesap ozeti uretilmemistir" maillerinde konu tarihine gore bilgi mesaji gonderir.
+- PDF ekinde pozitif gelen islem yoksa yine konu tarihine gore "gelen para yok" bilgi mesaji gonderir.
 - Toplam tutar satiri gondermez.
 
 ## 2. Mimari
