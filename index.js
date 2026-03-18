@@ -117,6 +117,56 @@ function normalizeForMatch(text) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function decodeQuotedPrintableToUtf8(text) {
+  const input = String(text || '');
+  const unfolded = input.replace(/=\r?\n/g, '');
+  const bytes = [];
+
+  for (let i = 0; i < unfolded.length; i++) {
+    const ch = unfolded[i];
+    const hex = unfolded.slice(i + 1, i + 3);
+
+    if (ch === '=' && /^[0-9a-fA-F]{2}$/.test(hex)) {
+      bytes.push(Number.parseInt(hex, 16));
+      i += 2;
+      continue;
+    }
+
+    bytes.push(unfolded.charCodeAt(i) & 0xff);
+  }
+
+  return Buffer.from(bytes).toString('utf8');
+}
+
+function decodeHtmlEntities(text) {
+  const named = {
+    nbsp: ' ',
+    amp: '&',
+    lt: '<',
+    gt: '>',
+    quot: '"',
+    apos: "'",
+    uuml: 'u',
+    ouml: 'o',
+    ccedil: 'c',
+    scedil: 's',
+    gbreve: 'g',
+    idot: 'i'
+  };
+
+  return String(text || '')
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&([a-zA-Z]+);/g, (full, key) => {
+      const normalizedKey = key.toLowerCase();
+      return Object.prototype.hasOwnProperty.call(named, normalizedKey) ? named[normalizedKey] : full;
+    });
+}
+
+function stripHtmlTags(text) {
+  return String(text || '').replace(/<[^>]+>/g, ' ');
+}
+
 function isStatementFooterLine(text) {
   const value = normalizeForMatch(String(text || '').trim());
   if (!value) return false;
@@ -139,7 +189,18 @@ function isExpectedStatementSubject(subject) {
 }
 
 function isNoStatementEmailBody(sourceText) {
-  return /hesap\s+ozeti\s+uretilmemistir|hesap\s+özeti\s+üretilmemiştir/i.test(sourceText);
+  const raw = String(sourceText || '');
+  const qpDecoded = decodeQuotedPrintableToUtf8(raw);
+  const htmlDecodedRaw = decodeHtmlEntities(raw);
+  const htmlDecodedQp = decodeHtmlEntities(qpDecoded);
+
+  const candidates = [raw, qpDecoded, htmlDecodedRaw, htmlDecodedQp]
+    .map(stripHtmlTags)
+    .map(normalizeForMatch)
+    .map((v) => v.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  return candidates.some((text) => /hesap\s+ozeti\s+uretilmemistir/i.test(text));
 }
 
 function extractDateFromSubject(subject) {
