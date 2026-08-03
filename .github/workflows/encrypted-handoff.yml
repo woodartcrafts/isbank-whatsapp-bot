@@ -1,0 +1,35 @@
+name: Encrypted Artifact Handoff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.handoff-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch encrypted artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(cat .handoff-trigger)"
+          mkdir -p handoff
+          curl --fail --silent --show-error --location "$url" --output handoff/artifact.enc
+          test -s handoff/artifact.enc
+      - name: Commit encrypted artifact
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add handoff/artifact.enc
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "chore: receive encrypted artifact [skip ci]"
+          git push
